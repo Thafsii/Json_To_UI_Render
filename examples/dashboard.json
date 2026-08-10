@@ -1,0 +1,36 @@
+{
+  "organization": {
+    "id": "org-001",
+    "name": "Acme Technologies",
+    "active": true,
+    "address": {
+      "city": "Chennai",
+      "country": "India"
+    }
+  },
+  "users": [
+    {
+      "id": "user-001",
+      "name": "John",
+      "skills": [
+        "Python",
+        "FastAPI"
+      ]
+    },
+    {
+      "id": "user-002",
+      "name": "Jane",
+      "skills": [
+        "React",
+        "TypeScript"
+      ]
+    }
+  ],
+  "metadata": {
+    "version": "1.0",
+    "tags": [
+      "security",
+      "compliance"
+    ]
+  }
+}
