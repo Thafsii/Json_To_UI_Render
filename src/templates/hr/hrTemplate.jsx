@@ -64,7 +64,7 @@ export default function HRTemplate({ data, classification }) {
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">HR dashboard</p>
             <h1 className="text-3xl font-semibold text-white">People operations</h1>
-            <p className="mt-2 text-sm text-slate-400">Detected domain: {classification.domain}</p>
+            <p className="mt-2 text-sm text-slate-400">Detected domain: {classification.detectedDomain}</p>
           </div>
           <SectionTabs sections={sections} activeSection={activeSection} onSelect={setActiveSection} />
         </div>

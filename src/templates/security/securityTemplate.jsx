@@ -156,7 +156,7 @@ export default function SecurityTemplate({ data, classification }) {
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Security operations</p>
             <h1 className="text-3xl font-semibold text-white">Security dashboard</h1>
-            <p className="mt-2 text-sm text-slate-400">Detected domain: {classification.domain}</p>
+            <p className="mt-2 text-sm text-slate-400">Detected domain: {classification.detectedDomain}</p>
           </div>
           <SectionTabs sections={sections} activeSection={activeSection} onSelect={setActiveSection} />
         </div>

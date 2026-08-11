@@ -582,7 +582,7 @@ export default function EcommerceTemplate({ data, classification }) {
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Ecommerce dashboard</p>
             <h1 className="text-3xl font-semibold text-white">Ecommerce summary</h1>
-            <p className="mt-2 text-sm text-slate-400">Domain: {classification.domain}</p>
+            <p className="mt-2 text-sm text-slate-400">Domain: {classification.detectedDomain}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {sections.map((section) => (

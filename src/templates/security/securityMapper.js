@@ -1,14 +1,4 @@
-import { safeArray, safeObject, safeNumber, getFirstExisting, getNestedValue } from '../shared/dataUtils.js';
-
-const findArray = (root, keys) => {
-  for (const key of keys) {
-    if (Array.isArray(root[key])) {
-      return root[key];
-    }
-  }
-  const entry = Object.entries(root).find(([, value]) => Array.isArray(value));
-  return entry ? entry[1] : [];
-};
+import { safeArray, safeObject, safeNumber, getFirstExisting, getNestedValue, findArray } from '../shared/dataUtils.js';
 
 export function normalizeSecurityData(data) {
   const root = safeObject(data);
@@ -20,12 +10,12 @@ export function normalizeSecurityData(data) {
   const incidents = safeArray(findArray(root, ['incidents', 'security_incidents', 'events']));
 
   const summary = safeObject(getFirstExisting(root, ['summary', 'dashboard', 'overview']));
-  const totalAssets = safeNumber(getNestedValue(summary, 'total_assets')) || assets.length;
-  const criticalFindings = safeNumber(getNestedValue(summary, 'critical_findings')) || findings.filter((item) => /critical/i.test(String(item.severity))).length;
-  const highFindings = safeNumber(getNestedValue(summary, 'high_findings')) || findings.filter((item) => /high/i.test(String(item.severity))).length;
-  const openFindings = safeNumber(getNestedValue(summary, 'open_findings')) || findings.filter((item) => /open|new/i.test(String(item.status))).length;
-  const resolvedFindings = safeNumber(getNestedValue(summary, 'resolved_findings')) || findings.filter((item) => /resolved|closed/i.test(String(item.status))).length;
-  const riskScore = safeNumber(getNestedValue(summary, 'risk_score')) || null;
+  const totalAssets = safeNumber(getNestedValue(summary, 'total_assets')) ?? assets.length;
+  const criticalFindings = safeNumber(getNestedValue(summary, 'critical_findings')) ?? findings.filter((item) => /critical/i.test(String(item.severity))).length;
+  const highFindings = safeNumber(getNestedValue(summary, 'high_findings')) ?? findings.filter((item) => /high/i.test(String(item.severity))).length;
+  const openFindings = safeNumber(getNestedValue(summary, 'open_findings')) ?? findings.filter((item) => /open|new/i.test(String(item.status))).length;
+  const resolvedFindings = safeNumber(getNestedValue(summary, 'resolved_findings')) ?? findings.filter((item) => /resolved|closed/i.test(String(item.status))).length;
+  const riskScore = safeNumber(getNestedValue(summary, 'risk_score')) ?? null;
 
   return {
     summary: { totalAssets, criticalFindings, highFindings, openFindings, resolvedFindings, riskScore },

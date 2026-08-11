@@ -1,14 +1,4 @@
-import { safeArray, safeObject, safeNumber, getFirstExisting, getNestedValue } from '../shared/dataUtils.js';
-
-const findArray = (root, keys) => {
-  for (const key of keys) {
-    if (Array.isArray(root[key])) {
-      return root[key];
-    }
-  }
-  const entry = Object.entries(root).find(([, value]) => Array.isArray(value));
-  return entry ? entry[1] : [];
-};
+import { safeArray, safeObject, safeNumber, getFirstExisting, getNestedValue, findArray } from '../shared/dataUtils.js';
 
 export function normalizeProjectManagementData(data) {
   const root = safeObject(data);

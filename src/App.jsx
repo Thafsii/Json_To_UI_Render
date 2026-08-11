@@ -4,8 +4,9 @@ import { validateJsonValue } from './validation/schema.js';
 import { analyzeJsonStructure } from './analyzer/structuralAnalyzer.js';
 import { resolveDomainRouting } from './utils/domainResolver.js';
 import { analyzeJsonWithAi } from './ai/analyzer.js';
+import { classifyJsonWithAiRemote, getRemoteAiDebugInfo, isRemoteAiConfigured } from './ai/remoteAi.js';
 import { generateReadme } from './ai/readmeGenerator.js';
-import { SUPPORTED_DOMAINS } from './config/domainConfig.js';
+import { SUPPORTED_DOMAINS, normalizeDomain, getDefaultDataModel, isSupportedDomain } from './config/domainConfig.js';
 
 const initialExample = `{
   "organization": {
@@ -54,7 +55,9 @@ function App() {
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [readme, setReadme] = useState('');
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [remoteAiError, setRemoteAiError] = useState('');
   const [activeTab, setActiveTab] = useState('editor');
+  const remoteAiDebugInfo = getRemoteAiDebugInfo();
 
   useEffect(() => {
     handleRender();
@@ -93,6 +96,10 @@ function App() {
       } else {
         setNotice(`Detected domain: ${classificationResult.detectedDomain.replace('_', ' ')} • Confidence: ${Math.round(classificationResult.confidence * 100)}%`);
       }
+
+      if (classificationResult?.aiDetection && isRemoteAiConfigured()) {
+        fetchRemoteAiClassification(parsed, classificationResult);
+      }
     } catch (error) {
       setErrors(['Invalid JSON file. Please upload a valid JSON document.']);
       setParsedJson(null);
@@ -101,6 +108,53 @@ function App() {
       setNotice('Invalid JSON file. Please upload a valid JSON document.');
     }
   };
+
+  const fetchRemoteAiClassification = async (json, localClassification) => {
+    setNotice('Fetching remote AI classification...');
+
+    try {
+      const remoteResult = await classifyJsonWithAiRemote(json);
+      if (!remoteResult) {
+        setNotice('Remote AI classification did not return a valid result. Using local classification.');
+        return;
+      }
+
+      const normalizedRemoteDomain = normalizeDomain(remoteResult.domain);
+      const isValidRemoteDomain = normalizedRemoteDomain && isSupportedDomain(normalizedRemoteDomain);
+
+      if (!isValidRemoteDomain) {
+        setNotice(`Remote AI returned unsupported domain "${remoteResult.domain}". Using local classification.`);
+        return;
+      }
+
+      const shouldOverride = remoteResult.confidence >= localClassification.confidence && remoteResult.confidence >= 0.75;
+      if (!shouldOverride) {
+        setNotice(`Remote AI classification completed. Keeping local domain "${localClassification.detectedDomain}".`);
+        return;
+      }
+
+      const updatedClassification = {
+        ...localClassification,
+        domainSource: 'AI Remote',
+        detectedDomain: normalizedRemoteDomain,
+        selectedTemplate: normalizedRemoteDomain,
+        data_model: getDefaultDataModel(normalizedRemoteDomain),
+        confidence: remoteResult.confidence,
+        reason: remoteResult.reason || `Remote AI classification returned ${normalizedRemoteDomain}`,
+        aiDetection: true,
+        fallbackUsed: false,
+        remote: true,
+      };
+
+      setClassification(updatedClassification);
+      setNotice(`Remote AI selected "${normalizedRemoteDomain}" (${Math.round(remoteResult.confidence * 100)}%).`);
+    } catch (error) {
+      const message = error?.message || String(error);
+      setRemoteAiError(message);
+      setNotice(`Remote AI classification failed: ${message}`);
+    }
+  };
+
 
   const handleFileUpload = async (event) => {
     const file = event.target.files?.[0];
@@ -382,6 +436,20 @@ function App() {
                 {notice}
               </div>
             ) : null}
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4 text-sm text-slate-100">
+              <p className="font-semibold text-white">Remote AI debug</p>
+              <p className="mt-2 text-slate-300">Configured: {remoteAiDebugInfo.configured ? 'yes' : 'no'}</p>
+              <p className="mt-1 text-slate-300">URL: {remoteAiDebugInfo.url || 'missing'}</p>
+              <p className="mt-1 text-slate-300">Model: {remoteAiDebugInfo.model || 'missing'}</p>
+              <p className="mt-1 text-slate-300">API key: {remoteAiDebugInfo.apiKeyPresent ? 'present' : 'missing'}</p>
+              <p className="mt-1 text-slate-300">Auth mode: {remoteAiDebugInfo.authHeaderMode}</p>
+              {remoteAiError ? (
+                <div className="mt-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100">
+                  <p className="font-semibold text-white">Remote AI raw error</p>
+                  <pre className="mt-2 whitespace-pre-wrap text-slate-200">{remoteAiError}</pre>
+                </div>
+              ) : null}
+            </div>
             {aiAnalysis ? (
               <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4 text-sm text-slate-100">
                 <p className="font-semibold text-white">AI Analysis</p>

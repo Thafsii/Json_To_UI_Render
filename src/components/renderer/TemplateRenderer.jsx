@@ -1,4 +1,5 @@
 import JsonRenderer from './Renderer.jsx';
+import TemplateErrorBoundary from './TemplateErrorBoundary.jsx';
 import templateRegistry from '../../templates/registry.js';
 
 export default function TemplateRenderer({ data, structure, classification }) {
@@ -10,7 +11,11 @@ export default function TemplateRenderer({ data, structure, classification }) {
   const Template = templateRegistry[selectedDomain] || templateRegistry.generic;
 
   if (Template) {
-    return <Template data={data} classification={classification} structure={structure} />;
+    return (
+      <TemplateErrorBoundary data={data}>
+        <Template data={data} classification={classification} structure={structure} />
+      </TemplateErrorBoundary>
+    );
   }
 
   return <JsonRenderer value={data} />;

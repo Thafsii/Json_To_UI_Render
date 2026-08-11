@@ -1,23 +1,30 @@
 # JSON UI Renderer
 
-A lightweight React + Vite frontend app that loads arbitrary JSON data, validates only that it is valid JSON, and renders a visual preview.
+A React + Vite frontend app for visualizing arbitrary JSON data and exploring structured dashboards.
 
 ## Features
 
-- Upload `.json` files
-- Edit JSON manually in the editor
-- Render any valid JSON value
-- View raw parsed JSON
-- Explore objects, arrays, primitives, booleans, numbers, strings, and null
-- Analyze JSON structure with a local summary
-- Responsive developer-style interface
+- Upload or paste any valid JSON input
+- Edit JSON manually in the editor and re-render
+- Structural analysis and summary of JSON content
+- Heuristic domain detection based on metadata fields or keyword classification
+- Explicit template override via `domain` or `template` fields
+- Six live domain templates:
+  - `ecommerce`
+  - `hrms`
+  - `security`
+  - `compliance`
+  - `monitoring`
+  - `project_management`
+- Generic recursive JSON viewer fallback for unsupported or unexpected inputs
+- README generation and download from parsed JSON and classification metadata
 
 ## Quick start
 
 1. Install Node.js and npm.
 2. Open a terminal in the project folder:
    ```bash
-   cd /home/thafsirsiyath/JSON
+   cd JSON
    npm install
    ```
 3. Start the development server:
@@ -26,33 +33,38 @@ A lightweight React + Vite frontend app that loads arbitrary JSON data, validate
    ```
 4. Open the local URL shown in the terminal.
 
-## Usage
+## How it works
 
-- Click **Upload JSON** to load a `.json` file. Valid JSON is rendered immediately.
-- Edit JSON in the left editor.
-- Click **Render** to parse and render your manual edits.
-- Use **Raw JSON** to view the parsed JSON output from `JSON.stringify(parsedJson, null, 2)`.
-- Click **Analyze with AI** to see a structure summary of the data.
+The app parses JSON and performs a structural summary of the dataset.
+It then decides which renderer to use by checking, in order:
 
-## New behavior
+1. The explicit `domain` field
+2. The explicit `template` field
+3. Keyword-based classification over the JSON shape and content
 
-This app no longer requires schema-specific fields like `type`, `components`, or `page`.
-It accepts any valid JSON value, including:
+If the JSON does not map to one of the supported dashboard domains, the app renders the data with a generic recursive JSON viewer.
 
-- Object
-- Array
-- String
-- Number
-- Boolean
-- Null
+## Supported domains and templates
+
+- `ecommerce`
+- `hrms`
+- `security`
+- `compliance`
+- `monitoring`
+- `project_management`
+
+Any other JSON content will use the generic renderer.
+
+## README generation
+
+The app can generate a README-style summary from the parsed JSON and classification metadata, then make it available for download.
 
 ## Example JSON
 
-The project includes `examples/dashboard.json` with sample organization and user data.
+Use `examples/dashboard.json` to test the renderer and domain detection flow.
 
 ## Notes
 
-- Only valid JSON is required for rendering.
-- Invalid JSON shows a friendly parsing error.
-- The preview is driven by the runtime data shape rather than fixed UI component types.
-- There is no backend; the app is frontend-only.
+- The app works entirely in the browser; there is no backend.
+- Invalid JSON input shows a parsing error instead of crashing.
+- Domain template rendering is protected by an error boundary, so unexpected data shapes fall back to the raw JSON viewer.

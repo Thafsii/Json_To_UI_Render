@@ -47,20 +47,20 @@ export function normalizeEcommerceData(data) {
   const topCustomers = safeArray(getFirstMatchingKey(customers, ['top_customers', 'topCustomers', 'top_customers_list', 'top_clients']));
 
   const dashboardSummary = {
-    totalRevenue: safeNumber(getNestedValue(dashboard, 'total_revenue')) || safeNumber(getNestedValue(dashboard, 'revenue_total')) || safeNumber(getNestedValue(dashboard, 'revenue')) || null,
-    totalOrders: safeNumber(getNestedValue(dashboard, 'total_orders')) || safeNumber(getNestedValue(dashboard, 'orders_total')) || safeNumber(getNestedValue(dashboard, 'orders')) || null,
-    totalCustomers: safeNumber(getNestedValue(dashboard, 'total_customers')) || customersCount || null,
-    totalProducts: safeNumber(getNestedValue(dashboard, 'total_products')) || safeNumber(getNestedValue(dashboard, 'products_total')) || safeNumber(getNestedValue(dashboard, 'products')) || safeNumber(products.length) || null,
-    averageOrderValue: safeNumber(getNestedValue(dashboard, 'average_order_value')) || safeNumber(getNestedValue(dashboard, 'avg_order_value')) || null,
-    ordersToday: safeNumber(getNestedValue(dashboard, 'orders_today')) || safeNumber(getNestedValue(dashboard, 'today_orders')) || null,
-    revenueToday: safeNumber(getNestedValue(dashboard, 'revenue_today')) || safeNumber(getNestedValue(dashboard, 'today_revenue')) || null,
+    totalRevenue: safeNumber(getNestedValue(dashboard, 'total_revenue')) ?? safeNumber(getNestedValue(dashboard, 'revenue_total')) ?? safeNumber(getNestedValue(dashboard, 'revenue')) ?? null,
+    totalOrders: safeNumber(getNestedValue(dashboard, 'total_orders')) ?? safeNumber(getNestedValue(dashboard, 'orders_total')) ?? safeNumber(getNestedValue(dashboard, 'orders')) ?? null,
+    totalCustomers: safeNumber(getNestedValue(dashboard, 'total_customers')) ?? customersCount ?? null,
+    totalProducts: safeNumber(getNestedValue(dashboard, 'total_products')) ?? safeNumber(getNestedValue(dashboard, 'products_total')) ?? safeNumber(getNestedValue(dashboard, 'products')) ?? safeNumber(products.length) ?? null,
+    averageOrderValue: safeNumber(getNestedValue(dashboard, 'average_order_value')) ?? safeNumber(getNestedValue(dashboard, 'avg_order_value')) ?? null,
+    ordersToday: safeNumber(getNestedValue(dashboard, 'orders_today')) ?? safeNumber(getNestedValue(dashboard, 'today_orders')) ?? null,
+    revenueToday: safeNumber(getNestedValue(dashboard, 'revenue_today')) ?? safeNumber(getNestedValue(dashboard, 'today_revenue')) ?? null,
   };
 
   const inventorySummary = {
-    totalProducts: safeNumber(getNestedValue(inventory, 'total_products')) || safeNumber(getNestedValue(inventory, 'products_total')) || safeNumber(products.length) || null,
-    inStock: safeNumber(getNestedValue(inventory, 'in_stock')) || safeNumber(getNestedValue(inventory, 'available')) || null,
-    lowStock: safeNumber(getNestedValue(inventory, 'low_stock')) || safeNumber(getNestedValue(inventory, 'low_stock_items')) || null,
-    outOfStock: safeNumber(getNestedValue(inventory, 'out_of_stock')) || safeNumber(getNestedValue(inventory, 'out_of_stock_items')) || null,
+    totalProducts: safeNumber(getNestedValue(inventory, 'total_products')) ?? safeNumber(getNestedValue(inventory, 'products_total')) ?? safeNumber(products.length) ?? null,
+    inStock: safeNumber(getNestedValue(inventory, 'in_stock')) ?? safeNumber(getNestedValue(inventory, 'available')) ?? null,
+    lowStock: safeNumber(getNestedValue(inventory, 'low_stock')) ?? safeNumber(getNestedValue(inventory, 'low_stock_items')) ?? null,
+    outOfStock: safeNumber(getNestedValue(inventory, 'out_of_stock')) ?? safeNumber(getNestedValue(inventory, 'out_of_stock_items')) ?? null,
     alerts: safeArray(getFirstMatchingKey(inventory, ['alerts', 'warnings', 'out_of_stock_alerts']))
       .filter((item) => item && typeof item === 'object'),
   };

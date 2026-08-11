@@ -27,4 +27,19 @@ export const getFirstExisting = (object, keys) => {
   return null;
 };
 
+export const findArray = (root, keys) => {
+  if (!root || typeof root !== 'object') {
+    return [];
+  }
+
+  for (const key of keys) {
+    if (Array.isArray(root[key])) {
+      return root[key];
+    }
+  }
+
+  const entry = Object.entries(root).find(([, value]) => Array.isArray(value));
+  return entry ? entry[1] : [];
+};
+
 export const normalizeKey = (key) => String(key || '').toLowerCase().replace(/[-_\s]+/g, '_');

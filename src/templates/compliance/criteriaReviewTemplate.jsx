@@ -88,7 +88,7 @@ export default function ComplianceCriteriaTemplate({ data, structure, classifica
         <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
           <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Compliance dashboard</p>
           <h2 className="mt-3 text-3xl font-semibold text-white">Compliance overview</h2>
-          <p className="mt-4 text-sm leading-relaxed text-slate-300">Domain classification: {classification.domain} • Confidence: {Math.round(classification.confidence * 100)}%</p>
+          <p className="mt-4 text-sm leading-relaxed text-slate-300">Domain classification: {classification.detectedDomain} • Confidence: {Math.round(classification.confidence * 100)}%</p>
           {summary ? (
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               {Object.entries(summary)
