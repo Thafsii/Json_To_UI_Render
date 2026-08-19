@@ -34,6 +34,14 @@ const buildDomains = () => {
   })).filter((entry) => SUPPORTED_DOMAINS.includes(entry.domain));
 };
 
+// Combines the match ratio (how much of the domain's hint vocabulary showed up)
+// with the absolute match count (how many distinct signals fired), so a domain
+// with a long hint list isn't unfairly penalized just for having more hints to
+// match against — 6 matches out of 11 hints is stronger evidence than the raw
+// 0.55 ratio alone suggests, since ratio-only scoring rewards short hint lists.
+const ABSOLUTE_MATCH_CAP = 4;
+const buildAdjustedScore = (score, matches) => (score + Math.min(matches / ABSOLUTE_MATCH_CAP, 1)) / 2;
+
 export function classifyJsonWithAi(json) {
   try {
     const keySet = collectKeySet(json);
@@ -42,11 +50,12 @@ export function classifyJsonWithAi(json) {
     const scored = domains.map((entry) => {
       const matches = countHintMatches(keySet, entry.hints);
       const score = entry.hints.length > 0 ? matches / entry.hints.length : 0;
-      return { ...entry, matches, score };
+      const adjustedScore = buildAdjustedScore(score, matches);
+      return { ...entry, matches, score, adjustedScore };
     });
 
-    const winner = scored.sort((a, b) => b.score - a.score)[0];
-    if (!winner || winner.score <= 0) {
+    const winner = scored.sort((a, b) => b.adjustedScore - a.adjustedScore)[0];
+    if (!winner || winner.matches <= 0) {
       return {
         domain: 'generic',
         data_model: 'generic',
@@ -55,8 +64,8 @@ export function classifyJsonWithAi(json) {
       };
     }
 
-    const confidence = Math.min(0.98, Math.max(0.35, 0.3 + winner.score * 0.75));
-    const reason = `Detected domain signals for ${winner.domain} using keys such as ${winner.hints.filter((hint) => Array.from(keySet).some((key) => key.includes(normalizeKey(hint)))).slice(0, 5).join(', ')}.`;
+    const confidence = Math.min(0.98, Math.max(0.3, 0.3 + winner.adjustedScore * 0.75));
+    const reason = `Detected domain signals for ${winner.domain} using keys such as ${winner.hints.filter((hint) => Array.from(keySet).some((key) => key.includes(normalizeKey(hint)))).slice(0, 5).join(', ')} (${winner.matches} signal${winner.matches === 1 ? '' : 's'} matched).`;
 
     return {
       domain: normalizeDomain(winner.domain) || 'generic',

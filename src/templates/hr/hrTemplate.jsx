@@ -6,6 +6,8 @@ import SearchInput from '../../components/shared/SearchInput.jsx';
 import Pagination from '../../components/shared/Pagination.jsx';
 import EmptyState from '../../components/shared/EmptyState.jsx';
 import DetailPanel from '../../components/shared/DetailPanel.jsx';
+import DistributionChart from '../../components/charts/DistributionChart.jsx';
+import { buildCategoryDistribution } from '../../components/charts/chartUtils.js';
 import { normalizeHRData } from './hrMapper.js';
 import StatusBadge from '../../components/shared/StatusBadge.jsx';
 
@@ -48,6 +50,11 @@ export default function HRTemplate({ data, classification }) {
   const pageCount = Math.max(1, Math.ceil(filteredEmployees.length / pageSize));
   const pageEmployees = filteredEmployees.slice((page - 1) * pageSize, page * pageSize);
 
+  const departmentChartData = useMemo(
+    () => buildCategoryDistribution(normalized.employees, ['department', 'department_name', 'team']),
+    [normalized.employees]
+  );
+
   const metrics = [
     { title: 'Total employees', value: normalized.summary.totalEmployees ?? '—' },
     { title: 'Active employees', value: normalized.summary.activeEmployees ?? '—' },
@@ -74,6 +81,7 @@ export default function HRTemplate({ data, classification }) {
         {activeSection === 'overview' && (
           <div className="space-y-6">
             <MetricGrid metrics={metrics} />
+            <DistributionChart title="Employees by department" data={departmentChartData} />
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
                 <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Workforce snapshot</p>

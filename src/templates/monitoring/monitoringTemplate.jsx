@@ -7,7 +7,23 @@ import Pagination from '../../components/shared/Pagination.jsx';
 import EmptyState from '../../components/shared/EmptyState.jsx';
 import DetailPanel from '../../components/shared/DetailPanel.jsx';
 import StatusBadge from '../../components/shared/StatusBadge.jsx';
+import DistributionChart from '../../components/charts/DistributionChart.jsx';
+import TimeSeriesChart from '../../components/charts/TimeSeriesChart.jsx';
+import { buildBucketedDistribution, buildCountTimeSeries } from '../../components/charts/chartUtils.js';
 import { normalizeMonitoringData } from './monitoringMapper.js';
+
+const SEVERITY_BUCKETS = [
+  { label: 'Critical', pattern: /critical/i },
+  { label: 'High', pattern: /high/i },
+  { label: 'Medium', pattern: /medium|warning/i },
+  { label: 'Low', pattern: /low|info/i },
+];
+
+const STATUS_BUCKETS = [
+  { label: 'Active', pattern: /active|firing|open/i },
+  { label: 'Acknowledged', pattern: /acknowledged|investigating/i },
+  { label: 'Resolved', pattern: /resolved|closed/i },
+];
 
 const sections = [
   { key: 'overview', label: 'Overview' },
@@ -48,6 +64,13 @@ export default function MonitoringTemplate({ data, classification }) {
   const pageCount = Math.max(1, Math.ceil(filteredAlerts.length / pageSize));
   const pageAlerts = filteredAlerts.slice((page - 1) * pageSize, page * pageSize);
 
+  const severityChartData = useMemo(() => buildBucketedDistribution(normalized.alerts, ['severity'], SEVERITY_BUCKETS), [normalized.alerts]);
+  const statusChartData = useMemo(() => buildBucketedDistribution(normalized.alerts, ['status'], STATUS_BUCKETS), [normalized.alerts]);
+  const alertsOverTimeData = useMemo(
+    () => buildCountTimeSeries(normalized.alerts, ['started_at', 'detected_at', 'created_at', 'timestamp']),
+    [normalized.alerts]
+  );
+
   const metrics = [
     { title: 'Hosts', value: normalized.summary.totalHosts ?? '—' },
     { title: 'Active alerts', value: normalized.summary.activeAlerts ?? '—' },
@@ -73,6 +96,11 @@ export default function MonitoringTemplate({ data, classification }) {
         {activeSection === 'overview' && (
           <div className="space-y-6">
             <MetricGrid metrics={metrics} />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <DistributionChart title="Severity distribution" data={severityChartData} />
+              <DistributionChart title="Alert status" data={statusChartData} type="pie" />
+            </div>
+            <TimeSeriesChart title="Alerts over time" description="Alert count per day" data={alertsOverTimeData} />
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
                 <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Metric coverage</p>

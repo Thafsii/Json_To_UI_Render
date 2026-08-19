@@ -1,12 +1,32 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import TemplateRenderer from './components/renderer/TemplateRenderer.jsx';
-import { validateJsonValue } from './validation/schema.js';
+import AiInsightPanel from './components/shared/AiInsightPanel.jsx';
+import ReportPanel from './components/shared/ReportPanel.jsx';
+import { validateJsonValue, validateRawJsonText } from './validation/schema.js';
 import { analyzeJsonStructure } from './analyzer/structuralAnalyzer.js';
 import { resolveDomainRouting } from './utils/domainResolver.js';
 import { analyzeJsonWithAi } from './ai/analyzer.js';
-import { classifyJsonWithAiRemote, getRemoteAiDebugInfo, isRemoteAiConfigured } from './ai/remoteAi.js';
+import {
+  classifyJsonWithAiRemote,
+  explainAnalysisWithAiRemote,
+  getRemoteAiDebugInfo,
+  isRemoteAiConfigured,
+  isRemoteAiEndpointConfigured,
+  setRemoteAiConsent,
+  setRuntimeApiKey,
+  hasRemoteAiConsent,
+} from './ai/remoteAi.js';
 import { generateReadme } from './ai/readmeGenerator.js';
-import { SUPPORTED_DOMAINS, normalizeDomain, getDefaultDataModel, isSupportedDomain } from './config/domainConfig.js';
+import { SUPPORTED_DOMAINS, normalizeDomain, getDefaultDataModel, isSupportedDomain, isFullySupportedDomain } from './config/domainConfig.js';
+import { normalizeEcommerceData } from './templates/ecommerce/ecommerceMapper.js';
+import { normalizeComplianceData } from './templates/compliance/complianceMapper.js';
+import { normalizeSecurityData } from './templates/security/securityMapper.js';
+
+const DOMAIN_DATA_BUILDERS = {
+  ecommerce: normalizeEcommerceData,
+  compliance: normalizeComplianceData,
+  security: normalizeSecurityData,
+};
 
 const initialExample = `{
   "organization": {
@@ -52,21 +72,67 @@ function App() {
   const [notice, setNotice] = useState('');
   const [structure, setStructure] = useState(null);
   const [classification, setClassification] = useState(null);
-  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [domainOverride, setDomainOverride] = useState('');
+  const [analysis, setAnalysis] = useState(null);
   const [readme, setReadme] = useState('');
   const [uploadedFile, setUploadedFile] = useState(null);
   const [remoteAiError, setRemoteAiError] = useState('');
+  const [remoteInsight, setRemoteInsight] = useState('');
+  const [remoteInsightError, setRemoteInsightError] = useState('');
+  const [isRequestingRemoteInsight, setIsRequestingRemoteInsight] = useState(false);
   const [activeTab, setActiveTab] = useState('editor');
+  const [showDeveloperDetails, setShowDeveloperDetails] = useState(false);
+  const [remoteAiConsentChecked, setRemoteAiConsentChecked] = useState(false);
+  const [remoteAiApiKeyInput, setRemoteAiApiKeyInput] = useState('');
   const remoteAiDebugInfo = getRemoteAiDebugInfo();
 
   useEffect(() => {
     handleRender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setRemoteAiConsent(remoteAiConsentChecked);
+  }, [remoteAiConsentChecked]);
+
+  useEffect(() => {
+    setRuntimeApiKey(remoteAiApiKeyInput);
+  }, [remoteAiApiKeyInput]);
+
+  const effectiveClassification = useMemo(() => {
+    if (!classification) return classification;
+    if (!domainOverride) return classification;
+
+    return {
+      ...classification,
+      domainSource: 'Manual override',
+      detectedDomain: domainOverride,
+      selectedTemplate: domainOverride,
+      data_model: getDefaultDataModel(domainOverride),
+      reason: 'User manually overrode the detected domain for this session. The uploaded JSON was not modified.',
+      aiDetection: false,
+      fallbackUsed: false,
+      remote: false,
+    };
+  }, [classification, domainOverride]);
 
   const parseAndAnalyzeJson = (text) => {
     setNotice('');
-    setAiAnalysis(null);
+    setAnalysis(null);
     setReadme('');
+    setDomainOverride('');
+    setRemoteInsight('');
+    setRemoteInsightError('');
+
+    const textErrors = validateRawJsonText(text);
+    if (textErrors.length > 0) {
+      setErrors(textErrors);
+      setParsedJson(null);
+      setStructure(null);
+      setClassification(null);
+      setNotice(textErrors[0]);
+      return;
+    }
 
     try {
       const parsed = JSON.parse(text);
@@ -76,6 +142,7 @@ function App() {
         setParsedJson(null);
         setStructure(null);
         setClassification(null);
+        setNotice(validationErrors[0]);
         return;
       }
 
@@ -97,11 +164,11 @@ function App() {
         setNotice(`Detected domain: ${classificationResult.detectedDomain.replace('_', ' ')} • Confidence: ${Math.round(classificationResult.confidence * 100)}%`);
       }
 
-      if (classificationResult?.aiDetection && isRemoteAiConfigured()) {
+      if (classificationResult?.aiDetection && isRemoteAiConfigured() && hasRemoteAiConsent()) {
         fetchRemoteAiClassification(parsed, classificationResult);
       }
     } catch (error) {
-      setErrors(['Invalid JSON file. Please upload a valid JSON document.']);
+      setErrors(['Invalid JSON file. Please upload a valid JSON document. ' + error.message]);
       setParsedJson(null);
       setStructure(null);
       setClassification(null);
@@ -155,12 +222,14 @@ function App() {
     }
   };
 
-
   const handleFileUpload = async (event) => {
     const file = event.target.files?.[0];
     setNotice('');
-    setAiAnalysis(null);
+    setAnalysis(null);
     setReadme('');
+    setDomainOverride('');
+    setRemoteInsight('');
+    setRemoteInsightError('');
 
     if (!file) {
       setErrors(['No file selected']);
@@ -176,8 +245,12 @@ function App() {
 
     setUploadedFile({ name: file.name, size: file.size });
 
-    if (!fileText.trim()) {
-      setErrors(['JSON file is empty']);
+    const textErrors = validateRawJsonText(fileText);
+    if (textErrors.length > 0) {
+      setErrors(textErrors);
+      setParsedJson(null);
+      setStructure(null);
+      setClassification(null);
       return;
     }
 
@@ -204,7 +277,7 @@ function App() {
     setJsonText(pretty);
     setErrors([]);
     setUploadedFile(null);
-    setAiAnalysis(null);
+    setAnalysis(null);
     setReadme('');
     setActiveTab('editor');
     parseAndAnalyzeJson(pretty);
@@ -214,16 +287,46 @@ function App() {
     if (!parsedJson) {
       return;
     }
-    const analysisResult = analyzeJsonWithAi(parsedJson, classification);
-    setAiAnalysis(analysisResult);
-    setNotice('AI analysis complete.');
+    const analysisResult = analyzeJsonWithAi(parsedJson, effectiveClassification);
+    setAnalysis(analysisResult);
+    setRemoteInsight('');
+    setRemoteInsightError('');
+    setNotice('Deterministic analysis complete.');
+  };
+
+  const handleRequestRemoteInsight = async () => {
+    if (!analysis) {
+      return;
+    }
+    setIsRequestingRemoteInsight(true);
+    setRemoteInsightError('');
+    try {
+      const text = await explainAnalysisWithAiRemote(analysis, effectiveClassification);
+      setRemoteInsight(text);
+    } catch (error) {
+      setRemoteInsightError(error?.message || String(error));
+    } finally {
+      setIsRequestingRemoteInsight(false);
+    }
+  };
+
+  const buildDomainData = () => {
+    const domain = effectiveClassification?.detectedDomain;
+    const builder = domain ? DOMAIN_DATA_BUILDERS[domain] : null;
+    return builder ? builder(parsedJson) : undefined;
   };
 
   const handleGenerateReadme = () => {
     if (!parsedJson) {
       return;
     }
-    const readmeText = generateReadme({ json: parsedJson, classification, analysis: aiAnalysis, structure });
+    const readmeText = generateReadme({
+      json: parsedJson,
+      classification: effectiveClassification,
+      analysis,
+      structure,
+      domainData: buildDomainData(),
+    });
     setReadme(readmeText);
     setNotice('README generated.');
   };
@@ -255,9 +358,12 @@ function App() {
     setNotice('Editor reset. Enter valid JSON or load an example.');
     setStructure(null);
     setClassification(null);
-    setAiAnalysis(null);
+    setDomainOverride('');
+    setAnalysis(null);
     setReadme('');
     setUploadedFile(null);
+    setRemoteInsight('');
+    setRemoteInsightError('');
   };
 
   const errorList = errors.length > 0 ? (
@@ -271,48 +377,78 @@ function App() {
     </div>
   ) : null;
 
-  const diagnosticPanel = classification ? (
-    <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-100">
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm font-semibold text-white">Routing diagnostics</p>
-        <span className={classification.fallbackUsed ? 'text-rose-300' : 'text-emerald-300'}>
-          {classification.fallbackUsed ? 'Fallback used' : 'No fallback'}
-        </span>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Domain Source</p>
-          <p className="mt-1 text-white">{classification.domainSource}</p>
+  const developerDetailsPanel = showDeveloperDetails ? (
+    <div className="space-y-4">
+      {effectiveClassification ? (
+        <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-100">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-white">Routing diagnostics</p>
+            <span className={effectiveClassification.fallbackUsed ? 'text-rose-300' : 'text-emerald-300'}>
+              {effectiveClassification.fallbackUsed ? 'Fallback used' : 'No fallback'}
+            </span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Domain Source</p>
+              <p className="mt-1 text-white">{effectiveClassification.domainSource}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Detected Domain</p>
+              <p className="mt-1 text-white">{effectiveClassification.detectedDomain}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Selected Template</p>
+              <p className="mt-1 text-white">{effectiveClassification.selectedTemplate}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">AI Detection</p>
+              <p className="mt-1 text-white">{effectiveClassification.aiDetection ? 'Called' : 'Not Required'}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Confidence</p>
+              <p className="mt-1 text-white">{effectiveClassification.confidence != null ? `${Math.round(effectiveClassification.confidence * 100)}%` : 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Reason</p>
+              <p className="mt-1 text-slate-300">{effectiveClassification.reason}</p>
+            </div>
+          </div>
         </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Detected Domain</p>
-          <p className="mt-1 text-white">{classification.detectedDomain}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Selected Template</p>
-          <p className="mt-1 text-white">{classification.selectedTemplate}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">AI Detection</p>
-          <p className="mt-1 text-white">{classification.aiDetection ? 'Called' : 'Not Required'}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Confidence</p>
-          <p className="mt-1 text-white">{classification.confidence != null ? `${Math.round(classification.confidence * 100)}%` : 'N/A'}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Reason</p>
-          <p className="mt-1 text-slate-300">{classification.reason}</p>
-        </div>
+      ) : null}
+
+      <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4 text-sm text-slate-100">
+        <p className="font-semibold text-white">Remote AI debug</p>
+        <p className="mt-2 text-slate-300">Endpoint configured: {remoteAiDebugInfo.endpointConfigured ? 'yes' : 'no'}</p>
+        <p className="mt-1 text-slate-300">URL: {remoteAiDebugInfo.url || 'missing'}</p>
+        <p className="mt-1 text-slate-300">Model: {remoteAiDebugInfo.model || 'missing'}</p>
+        <p className="mt-1 text-slate-300">API key: {remoteAiDebugInfo.apiKeyPresent ? 'present (session-only, not shown)' : 'missing'}</p>
+        <p className="mt-1 text-slate-300">Consent granted: {remoteAiDebugInfo.consent ? 'yes' : 'no'}</p>
+        <p className="mt-1 text-slate-300">Auth mode: {remoteAiDebugInfo.authHeaderMode}</p>
+        {remoteAiError ? (
+          <div className="mt-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100">
+            <p className="font-semibold text-white">Remote AI raw error</p>
+            <pre className="mt-2 whitespace-pre-wrap text-slate-200">{remoteAiError}</pre>
+          </div>
+        ) : null}
       </div>
     </div>
   ) : null;
 
   const previewContent = parsedJson ? (
-    <div className="space-y-5">
-      {diagnosticPanel}
-      <TemplateRenderer data={parsedJson} structure={structure} classification={classification} />
-    </div>
+    <TemplateRenderer
+      data={parsedJson}
+      structure={structure}
+      classification={effectiveClassification}
+      analysis={analysis}
+      remoteInsight={remoteInsight}
+      remoteAiAvailable={isRemoteAiConfigured() && hasRemoteAiConsent()}
+      onRequestRemoteInsight={handleRequestRemoteInsight}
+      isRequestingRemoteInsight={isRequestingRemoteInsight}
+      remoteError={remoteInsightError}
+      readme={readme}
+      onGenerateReadme={handleGenerateReadme}
+      onDownloadReadme={handleDownloadReadme}
+    />
   ) : (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 text-slate-400">
       <p className="text-sm">Live preview will appear here when your JSON is valid.</p>
@@ -391,12 +527,14 @@ function App() {
                   {SUPPORTED_DOMAINS.map((domain) => (
                     <span key={domain} className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs text-slate-300">
                       {domain}
+                      {!isFullySupportedDomain(domain) ? <span className="ml-1 text-slate-500">(generic)</span> : null}
                     </span>
                   ))}
                 </div>
                 <p className="mt-3 text-slate-400">
                   Example: <span className="font-mono text-slate-100">{`{ "domain": "hrms", "template": "hrms" }`}</span>
                 </p>
+                <p className="mt-2 text-xs text-slate-500">Domains marked “(generic)” are valid routing targets but render with the generic JSON explorer rather than a dedicated dashboard.</p>
               </div>
             </div>
 
@@ -419,6 +557,17 @@ function App() {
             )}
 
             {errorList}
+
+            <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-4">
+              <button
+                type="button"
+                onClick={() => setShowDeveloperDetails((value) => !value)}
+                className="text-xs uppercase tracking-[0.24em] text-slate-400 hover:text-cyan-300"
+              >
+                {showDeveloperDetails ? 'Hide developer details ▲' : 'Show developer details ▼'}
+              </button>
+              {showDeveloperDetails ? <div className="mt-4">{developerDetailsPanel}</div> : null}
+            </div>
           </section>
 
           <section className="space-y-6 rounded-3xl border border-slate-800 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/40">
@@ -428,78 +577,125 @@ function App() {
                 <p className="text-sm text-slate-400">Visualize the parsed JSON data structure.</p>
               </div>
               <div className="rounded-full border border-slate-700 bg-slate-950/80 px-4 py-2 text-sm text-slate-100">
-                Rendered template: <span className="font-semibold text-white">{classification?.selectedTemplate || 'generic'}</span>
+                Rendered template: <span className="font-semibold text-white">{effectiveClassification?.selectedTemplate || 'generic'}</span>
               </div>
             </div>
+
+            {classification ? (
+              <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-100">
+                <span className="text-slate-400">Detected domain: <span className="font-semibold text-white">{classification.detectedDomain}</span></span>
+                <select
+                  value={domainOverride}
+                  onChange={(event) => setDomainOverride(event.target.value)}
+                  className="rounded-full border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                >
+                  <option value="">Change domain… (keep detected)</option>
+                  {SUPPORTED_DOMAINS.map((domain) => (
+                    <option key={domain} value={domain}>
+                      {domain}{!isFullySupportedDomain(domain) ? ' (generic renderer)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {domainOverride ? (
+                  <button
+                    type="button"
+                    onClick={() => setDomainOverride('')}
+                    className="rounded-full border border-slate-700 bg-slate-950/80 px-3 py-1.5 text-xs text-slate-200 hover:border-cyan-400"
+                  >
+                    Reset override
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
             {notice ? (
               <div className="rounded-2xl border border-cyan-500/40 bg-cyan-500/10 p-4 text-sm text-cyan-100">
                 {notice}
               </div>
             ) : null}
-            <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4 text-sm text-slate-100">
-              <p className="font-semibold text-white">Remote AI debug</p>
-              <p className="mt-2 text-slate-300">Configured: {remoteAiDebugInfo.configured ? 'yes' : 'no'}</p>
-              <p className="mt-1 text-slate-300">URL: {remoteAiDebugInfo.url || 'missing'}</p>
-              <p className="mt-1 text-slate-300">Model: {remoteAiDebugInfo.model || 'missing'}</p>
-              <p className="mt-1 text-slate-300">API key: {remoteAiDebugInfo.apiKeyPresent ? 'present' : 'missing'}</p>
-              <p className="mt-1 text-slate-300">Auth mode: {remoteAiDebugInfo.authHeaderMode}</p>
-              {remoteAiError ? (
-                <div className="mt-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100">
-                  <p className="font-semibold text-white">Remote AI raw error</p>
-                  <pre className="mt-2 whitespace-pre-wrap text-slate-200">{remoteAiError}</pre>
-                </div>
-              ) : null}
-            </div>
-            {aiAnalysis ? (
-              <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4 text-sm text-slate-100">
-                <p className="font-semibold text-white">AI Analysis</p>
-                <p className="mt-2 text-slate-300">{aiAnalysis.summary}</p>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Entities</p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
-                      {aiAnalysis.entities.length ? aiAnalysis.entities.map((entity, idx) => (
-                        <li key={idx}>{entity.name} ({entity.count})</li>
-                      )) : <li>None detected</li>}
-                    </ul>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Important fields</p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
-                      {aiAnalysis.important_fields.length ? aiAnalysis.important_fields.slice(0, 8).map((field, idx) => (
-                        <li key={idx}>{field}</li>
-                      )) : <li>None detected</li>}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            ) : null}
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={handleGenerateReadme}
-                disabled={!parsedJson || !aiAnalysis}
-                className="rounded-full border border-slate-700 bg-slate-950/80 px-4 py-2 text-sm text-slate-100 transition hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Generate README
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadReadme}
-                disabled={!readme}
-                className="rounded-full border border-slate-700 bg-slate-950/80 px-4 py-2 text-sm text-slate-100 transition hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Download README.md
-              </button>
+            <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-white">Deterministic analysis</p>
+                <button
+                  type="button"
+                  onClick={handleAnalyze}
+                  disabled={!parsedJson}
+                  className="rounded-full border border-cyan-500/60 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-200 transition hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Analyze Data
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                This runs a local, rule-based structural analysis — it is not a call to an AI model. Use the “Remote AI” panel below for an optional AI-generated narrative.
+              </p>
+              {analysis ? (
+                <div className="mt-4 space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Entities</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
+                        {analysis.entities.length ? analysis.entities.map((entity, idx) => (
+                          <li key={idx}>{entity.name} ({entity.count})</li>
+                        )) : <li>None detected</li>}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Important fields</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
+                        {analysis.important_fields.length ? analysis.important_fields.slice(0, 8).map((field, idx) => (
+                          <li key={idx}>{field}</li>
+                        )) : <li>None detected</li>}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">No analysis yet. Click “Analyze Data” to generate insights.</p>
+              )}
             </div>
 
-            {readme ? (
-              <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-                <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Generated README</p>
-                <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap text-sm text-slate-200">{readme}</pre>
-              </div>
-            ) : null}
+            <div className="rounded-3xl border border-fuchsia-500/30 bg-slate-950/80 p-4">
+              <p className="text-sm font-semibold text-white">Remote AI (optional)</p>
+              <p className="mt-2 text-xs text-slate-400">
+                When enabled, only the deterministic analysis summary (or a redacted copy of your JSON for domain classification) is sent to the endpoint below — never raw data by default. Data leaves your browser directly for the endpoint you configure; nothing is sent unless you check the box and provide a key.
+              </p>
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={remoteAiConsentChecked}
+                  onChange={(event) => setRemoteAiConsentChecked(event.target.checked)}
+                  disabled={!isRemoteAiEndpointConfigured()}
+                />
+                I consent to sending data to the configured remote AI endpoint for this session.
+              </label>
+              {!isRemoteAiEndpointConfigured() ? (
+                <p className="mt-2 text-xs text-amber-300">No remote AI endpoint is configured (set AI_CHAT_URL / AI_CHAT_MODEL). The app works fully without it.</p>
+              ) : (
+                <div className="mt-3">
+                  <label className="text-xs uppercase tracking-[0.24em] text-slate-500">API key (kept in memory only, never saved or shown again)</label>
+                  <input
+                    type="password"
+                    value={remoteAiApiKeyInput}
+                    onChange={(event) => setRemoteAiApiKeyInput(event.target.value)}
+                    placeholder="Paste API key for this session"
+                    autoComplete="off"
+                    className="mt-1 w-full rounded-full border border-slate-700 bg-slate-900/90 px-4 py-2 text-sm text-slate-100 outline-none focus:border-fuchsia-400"
+                  />
+                </div>
+              )}
+            </div>
+
+            <AiInsightPanel
+              analysis={analysis}
+              remoteInsight={remoteInsight}
+              remoteAiAvailable={isRemoteAiConfigured() && hasRemoteAiConsent()}
+              onRequestRemoteInsight={handleRequestRemoteInsight}
+              isRequestingRemoteInsight={isRequestingRemoteInsight}
+              remoteError={remoteInsightError}
+            />
+
+            <ReportPanel readme={readme} onGenerateReadme={handleGenerateReadme} onDownloadReadme={handleDownloadReadme} canGenerate={Boolean(analysis)} />
 
             {previewContent}
           </section>

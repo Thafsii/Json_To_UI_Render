@@ -7,7 +7,16 @@ import Pagination from '../../components/shared/Pagination.jsx';
 import EmptyState from '../../components/shared/EmptyState.jsx';
 import DetailPanel from '../../components/shared/DetailPanel.jsx';
 import StatusBadge from '../../components/shared/StatusBadge.jsx';
+import DistributionChart from '../../components/charts/DistributionChart.jsx';
+import { buildBucketedDistribution, buildCategoryDistribution } from '../../components/charts/chartUtils.js';
 import { normalizeProjectManagementData } from './projectManagementMapper.js';
+
+const TASK_STATUS_BUCKETS = [
+  { label: 'To Do', pattern: /to[_\s-]?do|open|pending|backlog/i },
+  { label: 'In Progress', pattern: /in[_\s-]?progress|active/i },
+  { label: 'Blocked', pattern: /blocked/i },
+  { label: 'Done', pattern: /done|complete|closed/i },
+];
 
 const sections = [
   { key: 'overview', label: 'Overview' },
@@ -48,6 +57,9 @@ export default function ProjectManagementTemplate({ data, classification }) {
   const pageCount = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
   const pageTasks = filteredTasks.slice((page - 1) * pageSize, page * pageSize);
 
+  const taskStatusChartData = useMemo(() => buildBucketedDistribution(normalized.tasks, ['status'], TASK_STATUS_BUCKETS), [normalized.tasks]);
+  const priorityChartData = useMemo(() => buildCategoryDistribution(normalized.tasks, ['priority']), [normalized.tasks]);
+
   const metrics = [
     { title: 'Projects', value: normalized.summary.totalProjects ?? '—' },
     { title: 'Open tasks', value: normalized.summary.openTasks ?? '—' },
@@ -73,6 +85,10 @@ export default function ProjectManagementTemplate({ data, classification }) {
         {activeSection === 'overview' && (
           <div className="space-y-6">
             <MetricGrid metrics={metrics} />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <DistributionChart title="Task status" data={taskStatusChartData} type="pie" />
+              <DistributionChart title="Priority distribution" data={priorityChartData} />
+            </div>
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
                 <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Project overview</p>

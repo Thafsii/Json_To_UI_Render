@@ -49,6 +49,14 @@ export const DEFAULT_DATA_MODEL = {
   generic: 'generic',
 };
 
+// Domains with a purpose-built dashboard (metrics, charts, tables, detail views).
+// Domains not listed here render through the generic JSON explorer — they are
+// still valid routing targets, but the UI should say so rather than imply a
+// dedicated experience that doesn't exist yet.
+export const FULLY_SUPPORTED_DOMAINS = ['ecommerce', 'hrms', 'security', 'compliance', 'monitoring', 'project_management'];
+
+export const isFullySupportedDomain = (domain) => FULLY_SUPPORTED_DOMAINS.includes(normalizeDomain(domain) || domain);
+
 export const DOMAIN_HINTS = {
   ecommerce: ['products', 'orders', 'customers', 'inventory', 'sales', 'categories', 'cart', 'sku', 'price', 'shipping', 'payment'],
   hrms: ['employees', 'departments', 'attendance', 'leave', 'payroll', 'candidates', 'hiring', 'benefits', 'performance', 'position', 'access_control'],

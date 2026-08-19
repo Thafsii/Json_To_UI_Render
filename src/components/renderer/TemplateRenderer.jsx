@@ -2,7 +2,7 @@ import JsonRenderer from './Renderer.jsx';
 import TemplateErrorBoundary from './TemplateErrorBoundary.jsx';
 import templateRegistry from '../../templates/registry.js';
 
-export default function TemplateRenderer({ data, structure, classification }) {
+export default function TemplateRenderer({ data, structure, classification, ...rest }) {
   if (!data) {
     return null;
   }
@@ -13,7 +13,7 @@ export default function TemplateRenderer({ data, structure, classification }) {
   if (Template) {
     return (
       <TemplateErrorBoundary data={data}>
-        <Template data={data} classification={classification} structure={structure} />
+        <Template data={data} classification={classification} structure={structure} {...rest} />
       </TemplateErrorBoundary>
     );
   }

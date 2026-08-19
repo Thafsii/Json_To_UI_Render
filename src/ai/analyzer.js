@@ -46,8 +46,8 @@ export function analyzeJsonWithAi(json, classification) {
   const important_fields = buildImportantFields(arrayInfo);
   const observations = [];
 
-  if (classification && classification.domain !== 'generic') {
-    observations.push(`This dataset looks like ${classification.domain.replace('_', ' ')} content.`);
+  if (classification && classification.detectedDomain !== 'generic') {
+    observations.push(`This dataset looks like ${classification.detectedDomain.replace('_', ' ')} content.`);
   }
 
   if (entities.length) {
@@ -64,7 +64,7 @@ export function analyzeJsonWithAi(json, classification) {
 
   const summaryParts = [];
   if (classification) {
-    summaryParts.push(`This JSON was classified as ${classification.domain.replace('_', ' ')} with ${Math.round(classification.confidence * 100)}% confidence.`);
+    summaryParts.push(`This JSON was classified as ${classification.detectedDomain.replace('_', ' ')} with ${Math.round(classification.confidence * 100)}% confidence.`);
   }
   summaryParts.push(`Top-level keys include ${Object.keys(json).slice(0, 8).join(', ')}${Object.keys(json).length > 8 ? ', ...' : ''}.`);
   if (entities.length) {
@@ -73,7 +73,7 @@ export function analyzeJsonWithAi(json, classification) {
 
   return {
     summary: summaryParts.join(' '),
-    domain: classification?.domain || 'generic',
+    domain: classification?.detectedDomain || 'generic',
     entities,
     relationships,
     important_fields,

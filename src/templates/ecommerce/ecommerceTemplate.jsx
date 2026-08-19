@@ -1,5 +1,13 @@
 import { useMemo, useState } from 'react';
 import JsonValueRenderer from '../../components/renderer/JsonValueRenderer.jsx';
+import SearchInput from '../../components/shared/SearchInput.jsx';
+import Pagination from '../../components/shared/Pagination.jsx';
+import AiInsightPanel from '../../components/shared/AiInsightPanel.jsx';
+import ReportPanel from '../../components/shared/ReportPanel.jsx';
+import DistributionChart from '../../components/charts/DistributionChart.jsx';
+import TimeSeriesChart from '../../components/charts/TimeSeriesChart.jsx';
+import { buildBucketedDistribution, buildValueDistribution, buildTimeSeries } from '../../components/charts/chartUtils.js';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue.js';
 import { normalizeEcommerceData } from './ecommerceMapper.js';
 
 const sections = [
@@ -51,7 +59,7 @@ function getNestedCount(value) {
   return null;
 }
 
-export default function EcommerceTemplate({ data, classification }) {
+export default function EcommerceTemplate({ data, classification, analysis, remoteInsight, remoteAiAvailable, onRequestRemoteInsight, isRequestingRemoteInsight, remoteError, readme, onGenerateReadme, onDownloadReadme }) {
   const normalized = normalizeEcommerceData(data);
   const [activeSection, setActiveSection] = useState('overview');
   const [productSelection, setProductSelection] = useState(null);
@@ -61,24 +69,47 @@ export default function EcommerceTemplate({ data, classification }) {
   const [productPage, setProductPage] = useState(1);
   const [orderPage, setOrderPage] = useState(1);
   const pageSize = 25;
+  const debouncedProductQuery = useDebouncedValue(productQuery);
+  const debouncedOrderQuery = useDebouncedValue(orderQuery);
+
+  const orderStatusChartData = useMemo(
+    () =>
+      buildBucketedDistribution(normalized.orders, ['status', 'order_status'], [
+        { label: 'Pending', pattern: /pending|processing/i },
+        { label: 'Shipped', pattern: /shipped|in[_\s-]?transit/i },
+        { label: 'Delivered', pattern: /delivered|completed/i },
+        { label: 'Cancelled', pattern: /cancel/i },
+      ]),
+    [normalized.orders]
+  );
+
+  const categoryRevenueChartData = useMemo(
+    () => buildValueDistribution(normalized.sales.byCategory, ['category', 'name'], ['revenue']),
+    [normalized.sales.byCategory]
+  );
+
+  const salesTimeSeriesData = useMemo(
+    () => buildTimeSeries(normalized.sales.daily, ['date', 'day'], ['revenue']),
+    [normalized.sales.daily]
+  );
 
   const filteredProducts = useMemo(() => {
-    if (!productQuery.trim()) {
+    if (!debouncedProductQuery.trim()) {
       return normalized.products;
     }
-    const query = productQuery.toLowerCase();
+    const query = debouncedProductQuery.toLowerCase();
     return normalized.products.filter((product) => {
       return [product.id, product.name, product.category, product.brand]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query));
     });
-  }, [normalized.products, productQuery]);
+  }, [normalized.products, debouncedProductQuery]);
 
   const filteredOrders = useMemo(() => {
-    if (!orderQuery.trim()) {
+    if (!debouncedOrderQuery.trim()) {
       return normalized.orders;
     }
-    const query = orderQuery.toLowerCase();
+    const query = debouncedOrderQuery.toLowerCase();
     return normalized.orders.filter((order) => {
       const orderId = order.order_id || order.id || order.orderId || order.reference;
       const customer = order.customer && (order.customer.name || order.customer.customer_id || order.customer.email);
@@ -86,7 +117,7 @@ export default function EcommerceTemplate({ data, classification }) {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query));
     });
-  }, [normalized.orders, orderQuery]);
+  }, [normalized.orders, debouncedOrderQuery]);
 
   const productPageCount = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
   const orderPageCount = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
@@ -124,14 +155,13 @@ export default function EcommerceTemplate({ data, classification }) {
                   <h2 className="mt-2 text-3xl font-semibold text-white">Product catalog</h2>
                   <p className="mt-2 text-sm text-slate-400">Showing {filteredProducts.length} products.</p>
                 </div>
-                <input
+                <SearchInput
                   value={productQuery}
-                  onChange={(e) => {
-                    setProductQuery(e.target.value);
+                  onChange={(value) => {
+                    setProductQuery(value);
                     setProductPage(1);
                   }}
                   placeholder="Search by name, ID, category, brand"
-                  className="rounded-full border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
                 />
               </div>
 
@@ -163,24 +193,13 @@ export default function EcommerceTemplate({ data, classification }) {
                 </table>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
-                <span>Showing {Math.min((productPage - 1) * pageSize + 1, filteredProducts.length)}–{Math.min(productPage * pageSize, filteredProducts.length)} of {filteredProducts.length}</span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => setProductPage((value) => Math.max(1, value - 1))}
-                    disabled={productPage <= 1}
-                    className="rounded-full border border-slate-700 bg-slate-950/80 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => setProductPage((value) => Math.min(productPageCount, value + 1))}
-                    disabled={productPage >= productPageCount}
-                    className="rounded-full border border-slate-700 bg-slate-950/80 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-                  >
-                    Next
-                  </button>
-                </div>
+              <div className="mt-4">
+                <Pagination
+                  currentPage={productPage}
+                  pageCount={productPageCount}
+                  onPrevious={() => setProductPage((value) => Math.max(1, value - 1))}
+                  onNext={() => setProductPage((value) => Math.min(productPageCount, value + 1))}
+                />
               </div>
             </div>
 
@@ -223,14 +242,13 @@ export default function EcommerceTemplate({ data, classification }) {
                   <h2 className="mt-2 text-3xl font-semibold text-white">Recent orders</h2>
                   <p className="mt-2 text-sm text-slate-400">{filteredOrders.length} orders available.</p>
                 </div>
-                <input
+                <SearchInput
                   value={orderQuery}
-                  onChange={(e) => {
-                    setOrderQuery(e.target.value);
+                  onChange={(value) => {
+                    setOrderQuery(value);
                     setOrderPage(1);
                   }}
                   placeholder="Search by order ID or customer"
-                  className="rounded-full border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
                 />
               </div>
 
@@ -272,24 +290,13 @@ export default function EcommerceTemplate({ data, classification }) {
                 </table>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
-                <span>Showing {Math.min((orderPage - 1) * pageSize + 1, filteredOrders.length)}–{Math.min(orderPage * pageSize, filteredOrders.length)} of {filteredOrders.length}</span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => setOrderPage((value) => Math.max(1, value - 1))}
-                    disabled={orderPage <= 1}
-                    className="rounded-full border border-slate-700 bg-slate-950/80 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => setOrderPage((value) => Math.min(orderPageCount, value + 1))}
-                    disabled={orderPage >= orderPageCount}
-                    className="rounded-full border border-slate-700 bg-slate-950/80 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-                  >
-                    Next
-                  </button>
-                </div>
+              <div className="mt-4">
+                <Pagination
+                  currentPage={orderPage}
+                  pageCount={orderPageCount}
+                  onPrevious={() => setOrderPage((value) => Math.max(1, value - 1))}
+                  onNext={() => setOrderPage((value) => Math.min(orderPageCount, value + 1))}
+                />
               </div>
             </div>
 
@@ -530,6 +537,11 @@ export default function EcommerceTemplate({ data, classification }) {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
+              <DistributionChart title="Order status" data={orderStatusChartData} type="pie" />
+              <DistributionChart title="Revenue by category" data={categoryRevenueChartData} />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
                 <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Sales overview</p>
                 <h2 className="mt-2 text-3xl font-semibold text-white">Daily summary</h2>
@@ -570,6 +582,19 @@ export default function EcommerceTemplate({ data, classification }) {
                 </div>
               </div>
             </div>
+
+            <TimeSeriesChart title="Sales over time" description="Daily revenue" data={salesTimeSeriesData} />
+
+            <AiInsightPanel
+              analysis={analysis}
+              remoteInsight={remoteInsight}
+              remoteAiAvailable={remoteAiAvailable}
+              onRequestRemoteInsight={onRequestRemoteInsight}
+              isRequestingRemoteInsight={isRequestingRemoteInsight}
+              remoteError={remoteError}
+            />
+
+            <ReportPanel readme={readme} onGenerateReadme={onGenerateReadme} onDownloadReadme={onDownloadReadme} canGenerate={Boolean(analysis)} />
           </div>
         );
     }

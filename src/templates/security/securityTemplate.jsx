@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import JsonValueRenderer from '../../components/renderer/JsonValueRenderer.jsx';
 import MetricGrid from '../../components/shared/MetricGrid.jsx';
 import SectionTabs from '../../components/shared/SectionTabs.jsx';
@@ -7,6 +7,11 @@ import Pagination from '../../components/shared/Pagination.jsx';
 import EmptyState from '../../components/shared/EmptyState.jsx';
 import DetailPanel from '../../components/shared/DetailPanel.jsx';
 import StatusBadge from '../../components/shared/StatusBadge.jsx';
+import AiInsightPanel from '../../components/shared/AiInsightPanel.jsx';
+import ReportPanel from '../../components/shared/ReportPanel.jsx';
+import DistributionChart from '../../components/charts/DistributionChart.jsx';
+import { buildBucketedDistribution } from '../../components/charts/chartUtils.js';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue.js';
 import { normalizeSecurityData } from './securityMapper.js';
 
 const sections = [
@@ -16,6 +21,20 @@ const sections = [
   { key: 'vulnerabilities', label: 'Vulnerabilities' },
   { key: 'incidents', label: 'Incidents' },
   { key: 'controls', label: 'Controls' },
+  { key: 'risks', label: 'Risks' },
+];
+
+const SEVERITY_BUCKETS = [
+  { label: 'Critical', pattern: /critical/i },
+  { label: 'High', pattern: /high/i },
+  { label: 'Medium', pattern: /medium/i },
+  { label: 'Low', pattern: /low/i },
+];
+
+const STATUS_BUCKETS = [
+  { label: 'Open', pattern: /open|new/i },
+  { label: 'In Progress', pattern: /in[_\s-]?progress|investigating/i },
+  { label: 'Resolved', pattern: /resolved|closed|remediated/i },
 ];
 
 const formatLabel = (key) => String(key || '')
@@ -23,24 +42,56 @@ const formatLabel = (key) => String(key || '')
   .replace(/([a-z])([A-Z])/g, '$1 $2')
   .replace(/\b\w/g, (chr) => chr.toUpperCase());
 
-export default function SecurityTemplate({ data, classification }) {
-  const normalized = normalizeSecurityData(data);
+const CardGrid = ({ items, titleFields, subtitleFields, emptyTitle, emptyDescription, onSelect }) => {
+  if (!items.length) {
+    return <EmptyState title={emptyTitle} description={emptyDescription} />;
+  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((item, index) => {
+        const title = titleFields.map((field) => item?.[field]).find(Boolean) || `Record ${index + 1}`;
+        const subtitle = subtitleFields.map((field) => item?.[field]).find(Boolean);
+        return (
+          <button
+            key={index}
+            type="button"
+            onClick={() => onSelect(item)}
+            className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 text-left transition hover:border-cyan-500"
+          >
+            <h3 className="text-lg font-semibold text-white">{title}</h3>
+            <p className="mt-2 text-sm text-slate-400">{subtitle ? String(subtitle) : 'View details'}</p>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+export default function SecurityTemplate({ data, classification, analysis, remoteInsight, remoteAiAvailable, onRequestRemoteInsight, isRequestingRemoteInsight, remoteError, readme, onGenerateReadme, onDownloadReadme }) {
+  const normalized = useMemo(() => normalizeSecurityData(data), [data]);
   const [activeSection, setActiveSection] = useState('overview');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
   const pageSize = 20;
+  const debouncedSearch = useDebouncedValue(search);
 
-  const filteredFindings = normalized.findings.filter((item) => {
-    if (!search.trim()) return true;
-    const query = search.toLowerCase();
-    return [item.id, item.title, item.asset, item.severity, item.status]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(query));
-  });
+  const filteredFindings = useMemo(() => {
+    if (!debouncedSearch.trim()) return normalized.findings;
+    const query = debouncedSearch.toLowerCase();
+    return normalized.findings.filter((item) =>
+      [item.id, item.title, item.asset, item.severity, item.status].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
+    );
+  }, [normalized.findings, debouncedSearch]);
 
   const pageCount = Math.max(1, Math.ceil(filteredFindings.length / pageSize));
   const visibleFindings = filteredFindings.slice((page - 1) * pageSize, page * pageSize);
+
+  const severityChartData = useMemo(() => buildBucketedDistribution(normalized.findings, ['severity'], SEVERITY_BUCKETS), [normalized.findings]);
+  const statusChartData = useMemo(() => buildBucketedDistribution(normalized.findings, ['status'], STATUS_BUCKETS), [normalized.findings]);
+  const riskChartData = useMemo(() => buildBucketedDistribution(normalized.risks, ['severity', 'risk_level', 'rating'], SEVERITY_BUCKETS), [normalized.risks]);
 
   const summaryMetrics = [
     { title: 'Assets', value: normalized.summary.totalAssets ?? '—' },
@@ -55,35 +106,23 @@ export default function SecurityTemplate({ data, classification }) {
     <div className="space-y-6">
       <MetricGrid metrics={summaryMetrics} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-          <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Threat overview</p>
-          <h2 className="mt-2 text-3xl font-semibold text-white">Security posture</h2>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-3xl border border-slate-800 bg-slate-950/90 p-4">
-              <p className="text-sm text-slate-400">Vulnerabilities</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{normalized.vulnerabilities.length}</p>
-            </div>
-            <div className="rounded-3xl border border-slate-800 bg-slate-950/90 p-4">
-              <p className="text-sm text-slate-400">Incidents</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{normalized.incidents.length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-          <p className="text-sm uppercase tracking-[0.24em] text-cyan-400">Asset health</p>
-          <h2 className="mt-2 text-3xl font-semibold text-white">Asset inventory</h2>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-3xl border border-slate-800 bg-slate-950/90 p-4">
-              <p className="text-sm text-slate-400">Asset count</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{normalized.assets.length}</p>
-            </div>
-            <div className="rounded-3xl border border-slate-800 bg-slate-950/90 p-4">
-              <p className="text-sm text-slate-400">Controls</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{normalized.controls.length}</p>
-            </div>
-          </div>
-        </div>
+        <DistributionChart title="Findings by severity" data={severityChartData} />
+        <DistributionChart title="Findings by status" data={statusChartData} type="pie" />
       </div>
+      {riskChartData ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <DistributionChart title="Risk distribution" data={riskChartData} />
+        </div>
+      ) : null}
+      <AiInsightPanel
+        analysis={analysis}
+        remoteInsight={remoteInsight}
+        remoteAiAvailable={remoteAiAvailable}
+        onRequestRemoteInsight={onRequestRemoteInsight}
+        isRequestingRemoteInsight={isRequestingRemoteInsight}
+        remoteError={remoteError}
+      />
+      <ReportPanel readme={readme} onGenerateReadme={onGenerateReadme} onDownloadReadme={onDownloadReadme} canGenerate={Boolean(analysis)} />
     </div>
   );
 
@@ -149,6 +188,29 @@ export default function SecurityTemplate({ data, classification }) {
     </div>
   );
 
+  const renderRecordSection = (items, titleFields, subtitleFields, emptyTitle, emptyDescription) => (
+    <div className="space-y-6">
+      <CardGrid
+        items={items}
+        titleFields={titleFields}
+        subtitleFields={subtitleFields}
+        emptyTitle={emptyTitle}
+        emptyDescription={emptyDescription}
+        onSelect={setSelectedRecord}
+      />
+      {selectedRecord ? (
+        <DetailPanel title="Record details" onClose={() => setSelectedRecord(null)}>
+          {Object.entries(selectedRecord).map(([key, value]) => (
+            <div key={key} className="rounded-3xl border border-slate-800 bg-slate-900/90 p-4">
+              <div className="text-xs uppercase tracking-[0.24em] text-slate-500">{formatLabel(key)}</div>
+              <div className="mt-2 text-sm text-slate-100"><JsonValueRenderer value={value} /></div>
+            </div>
+          ))}
+        </DetailPanel>
+      ) : null}
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
@@ -165,10 +227,46 @@ export default function SecurityTemplate({ data, classification }) {
       <div className="space-y-6">
         {activeSection === 'overview' && renderOverview()}
         {activeSection === 'findings' && renderFindings()}
-        {activeSection === 'assets' && (normalized.assets.length ? <EmptyState title="Assets available" description="Asset list rendering will be added here." /> : <EmptyState title="No assets" description="This dataset does not provide asset inventory." />)}
-        {activeSection === 'vulnerabilities' && (normalized.vulnerabilities.length ? <EmptyState title="Vulnerabilities available" description="Vulnerabilities rendering will be added here." /> : <EmptyState title="No vulnerabilities" description="This dataset does not provide vulnerability information." />)}
-        {activeSection === 'incidents' && (normalized.incidents.length ? <EmptyState title="Incidents available" description="Incident rendering will be added here." /> : <EmptyState title="No incidents" description="This dataset does not provide incident information." />)}
-        {activeSection === 'controls' && (normalized.controls.length ? <EmptyState title="Controls available" description="Control rendering will be added here." /> : <EmptyState title="No controls" description="This dataset does not provide control information." />)}
+        {activeSection === 'assets' &&
+          renderRecordSection(
+            normalized.assets,
+            ['name', 'hostname', 'id'],
+            ['type', 'owner', 'criticality'],
+            'No asset data found.',
+            'This dataset does not provide an asset inventory.'
+          )}
+        {activeSection === 'vulnerabilities' &&
+          renderRecordSection(
+            normalized.vulnerabilities,
+            ['cve', 'name', 'id'],
+            ['severity', 'affected_asset', 'status'],
+            'No vulnerability data found.',
+            'This dataset does not provide vulnerability information.'
+          )}
+        {activeSection === 'incidents' &&
+          renderRecordSection(
+            normalized.incidents,
+            ['title', 'name', 'id'],
+            ['severity', 'status', 'detected_at'],
+            'No incident data found.',
+            'This dataset does not provide incident information.'
+          )}
+        {activeSection === 'controls' &&
+          renderRecordSection(
+            normalized.controls,
+            ['name', 'control_id', 'id'],
+            ['status', 'category', 'owner'],
+            'No control data found.',
+            'This dataset does not provide security control information.'
+          )}
+        {activeSection === 'risks' &&
+          renderRecordSection(
+            normalized.risks,
+            ['title', 'name', 'id'],
+            ['severity', 'status', 'owner'],
+            'No risk data found.',
+            'This dataset does not provide risk information.'
+          )}
       </div>
     </div>
   );
